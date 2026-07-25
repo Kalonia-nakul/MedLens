@@ -1,0 +1,23 @@
+PATIENT LAB REPORT (SAMPLE / FICTIONAL - FOR TESTING ONLY)
+
+Patient: Jane Doe (fictional)
+Age: 47
+Date of report: 2026-06-01
+
+Vitals:
+- Blood pressure: 148/94 mmHg
+- Resting heart rate: 88 bpm
+- BMI: 29.4
+
+Lab results:
+- Fasting glucose: 118 mg/dL (reference range: 70-99 mg/dL)
+- HbA1c: 6.1% (reference range: <5.7%)
+- Total cholesterol: 232 mg/dL (reference range: <200 mg/dL)
+- LDL: 152 mg/dL (reference range: <100 mg/dL)
+- HDL: 41 mg/dL (reference range: >40 mg/dL)
+- Triglycerides: 190 mg/dL (reference range: <150 mg/dL)
+
+Physician notes:
+Patient reports occasional fatigue and mild headaches over the past month.
+No chest pain, no shortness of breath. Family history of type 2 diabetes.
+Recommended follow-up in 3 months with repeat fasting glucose and lipid panel.

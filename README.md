@@ -1,157 +1,126 @@
-# Patient RAG Advisor
+# MedLens
 
-A local FastAPI service that lets a patient upload a document (lab report,
-discharge summary, prescription notes, etc.), indexes it with a local vector
-database, and answers questions about it using a locally-running **Ollama**
-model — grounded only in what's in the uploaded document.
+MedLens is a local, private AI agent that reads a patient's medical report
+(lab results, imaging notes, discharge summaries, etc.) and gives back a
+plain-language, structured "first read": a summary, key findings, risk
+flags, forward-looking things to watch ("foresight"), questions to bring to
+your doctor, and general lifestyle notes.
 
-> ⚠️ **This is an informational tool, not a medical device.** It does not
-> diagnose, prescribe, or replace a licensed clinician. Every answer includes
-> a disclaimer and the model is instructed to recommend professional care,
-> especially for anything urgent. Do not deploy this for real patient use
-> without a clinician review process, proper consent language, and
-> compliance with your local health-data regulations (e.g. HIPAA, GDPR).
+Everything runs locally through [Ollama](https://ollama.com) - no report
+text is sent to any external API.
 
-## How it works
-
-1. **Upload** (`POST /upload`) — a PDF/TXT/MD/DOCX file is parsed, split into
-   overlapping text chunks, embedded with an Ollama embedding model
-   (`nomic-embed-text` by default), and stored in a per-patient collection in
-   a local [ChromaDB](https://www.trychroma.com/) database (`chroma_db/`).
-2. **Ask** (`POST /ask`) — your question is embedded, the most relevant chunks
-   from that patient's document are retrieved, and both are sent to an Ollama
-   chat model (`llama3.1` by default) with a system prompt that restricts it
-   to the retrieved context and pushes it to recommend professional care
-   where relevant.
-3. **Delete** (`DELETE /patient/{patient_id}`) — wipes a patient's indexed
-   data.
-
-## Prerequisites
-
-- Python 3.10+
-- [Ollama](https://ollama.com/) installed and running locally
-- Pull the models you'll use:
-  ```bash
-  ollama pull llama3.1
-  ollama pull nomic-embed-text
-  ```
-
-## Setup
-
-```bash
-cd patient-rag-advisor
-python3 -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env            # adjust model names if you like
-```
-
-Make sure Ollama is running (`ollama serve`, or it's already running as a
-background service), then start the API:
-
-```bash
-uvicorn main:app --reload
-```
-
-The API is now at `http://localhost:8000`, with interactive docs at
-`http://localhost:8000/docs`.
-
-## Usage
-
-### 1. Upload a document
-
-```bash
-curl -X POST http://localhost:8000/upload \
-  -F "file=@/path/to/lab_report.pdf" \
-  -F "patient_id=patient_001"
-```
-
-Response:
-```json
-{
-  "patient_id": "patient_001",
-  "filename": "lab_report.pdf",
-  "chunks_indexed": 6,
-  "message": "Document indexed. You can now ask questions using this patient_id."
-}
-```
-
-(If you omit `patient_id`, one is generated for you and returned — save it.)
-
-### 2. Ask a question
-
-```bash
-curl -X POST http://localhost:8000/ask \
-  -H "Content-Type: application/json" \
-  -d '{
-    "patient_id": "patient_001",
-    "question": "What does my cholesterol result mean and should I be worried?"
-  }'
-```
-
-Response:
-```json
-{
-  "answer": "Based on your uploaded report, your LDL cholesterol is listed as ...",
-  "sources": ["lab_report.pdf"],
-  "disclaimer": "This is general information based only on the document you provided, ..."
-}
-```
-
-### 3. Delete a patient's data
-
-```bash
-curl -X DELETE http://localhost:8000/patient/patient_001
-```
-
-## Configuration
-
-All via environment variables (see `.env.example`):
-
-| Variable            | Default                   | Description                          |
-|---------------------|----------------------------|---------------------------------------|
-| `OLLAMA_BASE_URL`   | `http://localhost:11434`  | Ollama server URL                     |
-| `OLLAMA_LLM_MODEL`  | `llama3.1`                | Chat/generation model                 |
-| `OLLAMA_EMBED_MODEL`| `nomic-embed-text`        | Embedding model                       |
-| `CHROMA_DIR`        | `chroma_db`                | Local path for the vector database    |
+**MedLens does not diagnose.** It's a reading aid to help you prepare for a
+conversation with a real clinician. See the disclaimer shown in the app.
 
 ## Project structure
 
 ```
-patient-rag-advisor/
-├── main.py          # FastAPI app & routes
-├── rag_engine.py     # File parsing, chunking, embeddings, retrieval, generation
+medlens/
+├── app.py                      # Streamlit UI entry point
+├── medlens/
+│   ├── __init__.py
+│   ├── config.py                # Ollama host + model choices
+│   ├── prompts.py                # System prompt + JSON schema for output
+│   ├── report_parser.py         # Extracts text from PDF/TXT uploads
+│   └── ollama_client.py         # Calls the local Ollama server, parses JSON
+├── sample_reports/
+│   └── sample_report.txt        # Fictional report for testing
 ├── requirements.txt
-├── .env.example
-├── uploads/          # raw uploaded files (created at runtime)
-└── chroma_db/        # persisted vector store (created at runtime)
+└── README.md
 ```
 
-## Extending this
+## Setup
 
-- **Swap vector stores**: replace the ChromaDB calls in `rag_engine.py` with
-  FAISS, Qdrant, or pgvector if you outgrow local storage.
-- **Streaming answers**: set `"stream": True` in the `/api/chat` call and
-  proxy the stream back through a FastAPI `StreamingResponse`.
-- **Auth**: add an auth dependency (e.g. API key or JWT) to `/upload`,
-  `/ask`, and `/patient/{id}` before exposing this beyond localhost.
-- **Structured extraction**: for lab reports, consider a preprocessing step
-  that pulls out (test name, value, reference range) triples so the model
-  reasons over structured data rather than raw text.
-- **Better chunking**: swap the naive sliding-window chunker for a
-  sentence/paragraph-aware splitter (e.g. `langchain`'s
-  `RecursiveCharacterTextSplitter`) if answer quality on long documents needs
-  improvement.
+1. **Install Ollama** (if you haven't already): https://ollama.com/download
 
-## Safety notes
+2. **Pull a model.** The default is Llama 3.1 8B, a strong general-purpose
+   instruction-following model that's reliable at returning well-formed JSON
+   (which this app depends on to render the UI):
 
-- The system prompt in `rag_engine.py` (`SYSTEM_PROMPT`) is the main lever
-  for keeping answers cautious — read and adjust it before any real-world
-  use. It currently instructs the model to avoid diagnosing, avoid
-  prescribing/adjusting medication, and to flag urgent-sounding content for
-  prompt medical attention.
-- Everything runs locally by default (Ollama + ChromaDB on disk) — no patient
-  data leaves the machine unless you change `OLLAMA_BASE_URL` to a remote
-  server.
-- Add real authentication and encryption at rest before handling actual
-  patient data.
+   ```bash
+   ollama pull llama3.1:8b
+   ```
+
+   Other options selectable in the app's sidebar:
+   - `meditron:7b` - continually pretrained on medical literature (PubMed,
+     clinical guidelines). More domain knowledge, but less reliable at
+     strict JSON formatting than llama3.1.
+   - `qwen2.5:7b`, `mistral`, `llama3.2` - lighter/faster general fallbacks.
+
+   Pull whichever you plan to use, e.g. `ollama pull meditron:7b`.
+
+3. **Make sure the Ollama server is running** (the desktop app running in
+   the background is enough, or run `ollama serve` manually).
+
+4. **Install Python dependencies:**
+
+   ```bash
+   cd medlens
+   python -m venv .venv && source .venv/bin/activate   # optional but recommended
+   pip install -r requirements.txt
+   ```
+
+5. **Run the app:**
+
+   ```bash
+   streamlit run app.py
+   ```
+
+   It will open in your browser, usually at `http://localhost:8501`.
+
+## Using it
+
+1. Pick a model in the sidebar (must already be pulled - see above).
+2. Either upload a `.pdf`/`.txt` report, or paste the report text directly.
+3. Optionally add context (symptoms, history, medications).
+4. Click **Analyze report**.
+5. Review the summary, risk flags, foresight items, and suggested questions.
+
+Try it first with `sample_reports/sample_report.txt` (a fictional report) to
+confirm your setup works end to end.
+
+## How the "foresight" works
+
+The system prompt (in `medlens/prompts.py`) instructs the model to return a
+single JSON object with these sections:
+
+- `summary` - plain-language overview
+- `key_findings` - what's in the report, explained
+- `risk_flags` - anything concerning, tagged `low` / `medium` / `high`
+  severity (high-severity items are meant for anything urgent, with advice
+  to seek care promptly)
+- `foresight` - forward-looking observations (e.g. "if this trend
+  continues...", "worth rechecking at your next visit") with a timeframe and
+  rationale grounded in the report's own content
+- `recommended_questions` - questions to ask your doctor
+- `lifestyle_suggestions` - general, non-prescriptive notes
+- `disclaimer` - always included
+
+The model is explicitly instructed never to state a definitive diagnosis,
+never invent values not present in the report, and to flag emergencies
+clearly. If the model's reply isn't valid JSON, the app falls back to
+showing the raw text so nothing is silently lost.
+
+## Configuration
+
+Environment variable `OLLAMA_HOST` can point the app at a non-default
+Ollama server address (default `http://localhost:11434`). See
+`medlens/config.py` for model lists and timeouts.
+
+## Extending this project
+
+Ideas for taking this further:
+- Add OCR (e.g. `pytesseract`) for scanned PDF reports without a text layer.
+- Track multiple reports over time and ask the model to compare trends
+  across visits (the `foresight` section is built with this in mind).
+- Add authentication and encrypted local storage if you want to keep a
+  history of past reports.
+- Swap in a vision-capable local model to read embedded charts/images in
+  imaging reports.
+
+## Disclaimer
+
+MedLens is not a substitute for professional medical advice, diagnosis, or
+treatment. Always seek the advice of a qualified health provider with any
+questions about a medical condition. If you think you may have a medical
+emergency, call your local emergency number immediately.
